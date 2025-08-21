@@ -40,6 +40,8 @@ defmodule Bon.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:muontrap, "~> 1.0"},
+      {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
