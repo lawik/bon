@@ -17,7 +17,7 @@ defmodule BonWeb.Router do
   scope "/", BonWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", Live.PageLive
   end
 
   # Other scopes may use custom stacks.
