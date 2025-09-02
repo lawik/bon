@@ -21,7 +21,7 @@ defmodule Bon.MixProject do
   def application do
     [
       mod: {Bon.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :os_mon]
     ]
   end
 
@@ -40,6 +40,7 @@ defmodule Bon.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:sizeable, "~> 1.0"},
       {:muontrap, "~> 1.0"},
       {:igniter, "~> 0.6", only: [:dev, :test]},
       {:phoenix, "~> 1.8.0"},

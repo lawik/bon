@@ -21,9 +21,10 @@ defmodule BonWeb.Router do
   end
 
   # Other scopes may use custom stacks.
-  # scope "/api", BonWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", BonWeb do
+    pipe_through :api
+    post "/status/:identifier", Controllers.StatusController, :report
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:bon, :dev_routes) do

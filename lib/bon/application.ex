@@ -8,6 +8,7 @@ defmodule Bon.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      Bon.VMSupervisor,
       BonWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:bon, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Bon.PubSub},
