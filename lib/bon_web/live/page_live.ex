@@ -3,6 +3,7 @@ defmodule BonWeb.Live.PageLive do
 
   def mount(_params, _session, socket) do
     Application.ensure_all_started(:memsup)
+    Application.ensure_all_started(:cpu_sup)
     status = Bon.VMSupervisor.status()
     Phoenix.PubSub.subscribe(Bon.PubSub, "status")
     t = System.monotonic_time(:millisecond)
@@ -10,7 +11,13 @@ defmodule BonWeb.Live.PageLive do
 
     socket =
       socket
-      |> assign(status: status, refresh: nil, dirty?: false, memory: %{total: 0, used: 0})
+      |> assign(
+        status: status,
+        refresh: nil,
+        dirty?: false,
+        memory: %{total: 0, used: 0},
+        cpu: %{util: 0.0}
+      )
 
     {:ok, socket}
   end
@@ -23,8 +30,17 @@ defmodule BonWeb.Live.PageLive do
     sysmem = :memsup.get_system_memory_data()
     total = Keyword.get(sysmem, :system_total_memory)
     used = Keyword.get(sysmem, :buffered_memory) + Keyword.get(sysmem, :cached_memory)
+
+    # Get CPU utilization
+    cpu_util =
+      case :cpu_sup.util() do
+        {:badrpc, _} -> 0.0
+        util when is_number(util) -> util
+        _ -> 0.0
+      end
+
     tick()
-    {:noreply, assign(socket, memory: %{total: total, used: used})}
+    {:noreply, assign(socket, memory: %{total: total, used: used}, cpu: %{util: cpu_util})}
   end
 
   def handle_info(:change, %{assigns: %{refresh: nil}} = socket) do
@@ -79,8 +95,31 @@ defmodule BonWeb.Live.PageLive do
         <p class="text-base-content/70">Real-time system monitoring and VM control</p>
       </div>
 
-    <!-- Memory Stats -->
       <div class="stats shadow w-full">
+        <!-- CPU Stats -->
+        <div class="stat">
+          <div class="stat-figure text-warning">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              class="inline-block w-8 h-8 stroke-current"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
+              />
+            </svg>
+          </div>
+          <div class="stat-title">CPU Utilization</div>
+          <div class="stat-value text-warning">
+            {:erlang.float_to_binary(@cpu.util, decimals: 1)}%
+          </div>
+          <div class="stat-desc">Current CPU usage</div>
+        </div>
+        <!-- Memory Stats -->
         <div class="stat">
           <div class="stat-figure text-primary">
             <svg
@@ -132,7 +171,7 @@ defmodule BonWeb.Live.PageLive do
               {round(@memory.used / max(@memory.total, 1) * 100)}%
             </div>
           </div>
-          <div class="stat-title">Usage Percentage</div>
+          <div class="stat-title">Memory Usage</div>
           <div class="stat-value text-accent">
             {round(@memory.used / max(@memory.total, 1) * 100)}%
           </div>
