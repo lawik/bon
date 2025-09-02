@@ -5,14 +5,19 @@ defmodule Bon.VMSupervisor do
     DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end
 
+  @hard_limit 5000
   def add(count) do
-    1..count
-    |> Enum.each(fn _ ->
-      identifier = Process.get("identifier", 1)
-      disk_image = "/space/disks/#{identifier}.img"
-      start_child(identifier, disk_image)
-      Process.put("identifier", identifier + 1)
-    end)
+    %{workers: current} = DynamicSupervisor.count_children(__MODULE__)
+
+    if current + count <= @hard_limit do
+      1..count
+      |> Enum.each(fn _ ->
+        identifier = Process.get("identifier", 1)
+        disk_image = "/space/disks/#{identifier}.img"
+        start_child(identifier, disk_image)
+        Process.put("identifier", identifier + 1)
+      end)
+    end
   end
 
   def remove(count) do
@@ -43,6 +48,8 @@ defmodule Bon.VMSupervisor do
   end
 
   def status do
+    counts = DynamicSupervisor.count_children(__MODULE__)
+    IO.inspect(counts)
     children = DynamicSupervisor.which_children(__MODULE__)
     start_count = Enum.count(children)
 
@@ -53,7 +60,7 @@ defmodule Bon.VMSupervisor do
       end)
       |> Enum.count()
 
-    %{start_count: start_count, run_count: confirmed_count}
+    %{total: start_count, running: confirmed_count}
   end
 
   @impl true
