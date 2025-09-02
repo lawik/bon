@@ -6,7 +6,6 @@ defmodule BonWeb.Live.PageLive do
     Application.ensure_all_started(:cpu_sup)
     status = Bon.VMSupervisor.status()
     Phoenix.PubSub.subscribe(Bon.PubSub, "status")
-    t = System.monotonic_time(:millisecond)
     tick(0)
 
     socket =
@@ -16,7 +15,8 @@ defmodule BonWeb.Live.PageLive do
         refresh: nil,
         dirty?: false,
         memory: %{total: 0, used: 0},
-        cpu: %{util: 0.0}
+        cpu: %{util: 0.0},
+        form: to_form(%{"count" => to_string(status.running)})
       )
 
     {:ok, socket}
@@ -28,8 +28,8 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_info(:tick, socket) do
     sysmem = :memsup.get_system_memory_data()
-    total = Keyword.get(sysmem, :system_total_memory)
-    used = Keyword.get(sysmem, :buffered_memory) + Keyword.get(sysmem, :cached_memory)
+    total = Keyword.get(sysmem, :system_total_memory, 0)
+    used = Keyword.get(sysmem, :buffered_memory, 0) + Keyword.get(sysmem, :cached_memory, 0)
 
     # Get CPU utilization
     cpu_util =
@@ -44,6 +44,8 @@ defmodule BonWeb.Live.PageLive do
   end
 
   def handle_info(:change, %{assigns: %{refresh: nil}} = socket) do
+    IO.puts("refresh triggered")
+
     t =
       Task.async(fn ->
         Bon.VMSupervisor.status()
@@ -53,29 +55,38 @@ defmodule BonWeb.Live.PageLive do
   end
 
   def handle_info(:change, socket) do
+    IO.puts("dirty")
     {:noreply, assign(socket, dirty?: true)}
   end
 
   def handle_info({_ref, result}, socket) do
+    IO.puts("received status update")
+    current_count = result.running || 0
+
+    updated_socket =
+      assign(socket, status: result, form: to_form(%{"count" => to_string(current_count)}))
+
     if socket.assigns.dirty? do
+      IO.puts("was dirty, refetching")
+
       t =
         Task.async(fn ->
           Bon.VMSupervisor.status()
         end)
 
-      {:noreply, assign(socket, status: result, refresh: t, dirty?: false)}
+      {:noreply, assign(updated_socket, refresh: t, dirty?: false)}
     else
-      {:noreply, assign(socket, status: result, refresh: nil, dirty?: false)}
+      IO.puts("clean, not refetching")
+      {:noreply, assign(updated_socket, refresh: nil, dirty?: false)}
     end
   end
 
-  def handle_info({:DOWN, ref, :process, _pid, _reason}, socket) do
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
     {:noreply, socket}
   end
 
   def handle_event("add", %{"count" => count}, socket) do
     count = String.to_integer(count)
-    IO.inspect(count)
     Bon.VMSupervisor.add(count)
     {:noreply, socket}
   end
@@ -84,6 +95,30 @@ defmodule BonWeb.Live.PageLive do
     count = String.to_integer(count)
     Bon.VMSupervisor.remove(count)
     {:noreply, socket}
+  end
+
+  def handle_event("vm_count_form_change", %{"count" => count_str}, socket) do
+    current_count = socket.assigns.status.running || 0
+
+    case Integer.parse(count_str) do
+      {target_count, ""} when target_count >= 0 ->
+        cond do
+          target_count > current_count ->
+            Bon.VMSupervisor.add(target_count - current_count)
+
+          target_count < current_count ->
+            Bon.VMSupervisor.remove(current_count - target_count)
+
+          true ->
+            # target equals current, no action needed
+            :ok
+        end
+
+        {:noreply, assign(socket, form: to_form(%{"count" => count_str}))}
+
+      _ ->
+        {:noreply, assign(socket, form: to_form(%{"count" => count_str}))}
+    end
   end
 
   def render(assigns) do
@@ -178,7 +213,7 @@ defmodule BonWeb.Live.PageLive do
           <div class="stat-desc">Current memory utilization</div>
         </div>
       </div>
-
+      
     <!-- VM Control Panel -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
@@ -246,7 +281,27 @@ defmodule BonWeb.Live.PageLive do
                 </button>
               </div>
             </div>
-
+            
+    <!-- Custom Count Form -->
+            <div class="md:col-span-2 space-y-4">
+              <h3 class="text-lg font-semibold text-info">Set VM Count</h3>
+              <.form
+                for={@form}
+                phx-change="vm_count_form_change"
+                phx-submit="vm_count_form_change"
+                id="vm-count-form"
+              >
+                <.input
+                  field={@form[:count]}
+                  type="number"
+                  label="Target VM Count"
+                  class="input input-bordered input-info w-full"
+                  phx-debounce="blur"
+                  min="0"
+                />
+              </.form>
+            </div>
+            
     <!-- Remove VMs Section -->
             <div class="space-y-4">
               <h3 class="text-lg font-semibold text-error">Remove VMs</h3>
@@ -295,7 +350,7 @@ defmodule BonWeb.Live.PageLive do
           </div>
         </div>
       </div>
-
+      
     <!-- Run Count Gauge -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body items-center text-center">

@@ -19,7 +19,11 @@ defmodule Bon.VM do
       if System.get_env("MOCK", "false") == "true" do
         spawn(fn ->
           :timer.sleep(1500)
-          Req.post(url(~p"/api/status/#{identifier}"))
+
+          Req.post(url(~p"/api/status/#{identifier}"),
+            receive_timeout: 100_000,
+            pool_timeout: 100_000
+          )
         end)
 
         Agent.start_link(fn -> :ok end)
