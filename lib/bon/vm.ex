@@ -2,6 +2,8 @@ defmodule Bon.VM do
   use GenServer
   use Phoenix.VerifiedRoutes, endpoint: BonWeb.Endpoint, router: BonWeb.Router
 
+  require Logger
+
   def start_link(opts) do
     identifier = Keyword.get(opts, :identifier)
     GenServer.start_link(__MODULE__, opts, name: {:global, name(identifier)})
@@ -28,10 +30,14 @@ defmodule Bon.VM do
 
         Agent.start_link(fn -> :ok end)
       else
-        MuonTrap.Daemon.start_link("qemu-system-aarch64", args(identifier, disk_image), [])
+        MuonTrap.Daemon.start_link("qemu-system-aarch64", args(identifier, disk_image), logger_fun: &log/1)
       end
 
     {:ok, %{identifier: opts[:identifier], pid: pid, started?: false}}
+  end
+
+  defp log(line) do
+    Logger.info("VM log: #{line}")
   end
 
   def report(identifier) do

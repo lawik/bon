@@ -8,4 +8,11 @@ defmodule Bon.MacAddress do
     |> Enum.map(&IO.iodata_to_binary/1)
     |> Enum.join(":")
   end
+
+  def to_integer(mac) do
+    mac
+    |> String.replace(":", "")
+    |> Integer.parse(16)
+    |> elem(0)
+  end
 end
