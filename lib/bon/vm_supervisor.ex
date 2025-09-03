@@ -16,10 +16,11 @@ defmodule Bon.VMSupervisor do
     if current + count <= @hard_limit do
       count
       |> available_identifiers()
-      |> Enum.each(fn identifier ->
+      |> Task.async_stream(fn identifier ->
         disk_image = "/space/disks/#{identifier}.img"
         start_child(identifier, disk_image)
-      end)
+      end, ordered: false, timeout: 360_000)
+      |> Stream.run()
     end
   end
 
@@ -46,10 +47,16 @@ defmodule Bon.VMSupervisor do
     Logger.info("Removing #{count} VMs")
 
     PartitionSupervisor.which_children(@vm_supervisor)
+    |> Enum.flat_map(fn {_, pid, :supervisor, _} ->
+      DynamicSupervisor.which_children(pid)
+      |> Enum.map(fn child ->
+        {pid, child}
+      end)
+    end)
     |> Enum.take(count)
-    |> Enum.each(fn {_, pid, _, _} ->
-      DynamicSupervisor.terminate_child(via(), pid)
-      Phoenix.PubSub.broadcast(Bon.PubSub, "status", :change)
+    |> Enum.each(fn {supervisor, {_, pid, _, _}} ->
+      DynamicSupervisor.terminate_child(supervisor, pid) |> IO.inspect()
+      Phoenix.PubSub.broadcast(Bon.PubSub, "status", {:change, :removed})
     end)
   end
 
@@ -58,14 +65,14 @@ defmodule Bon.VMSupervisor do
 
     DynamicSupervisor.start_child(via(), spec)
     |> tap(fn _ ->
-      Phoenix.PubSub.broadcast(Bon.PubSub, "status", :change)
+      Phoenix.PubSub.broadcast(Bon.PubSub, "status", {:change, :added})
     end)
   end
 
   def stop_child(identifier) do
     DynamicSupervisor.terminate_child(via(), name(identifier))
     |> tap(fn _ ->
-      Phoenix.PubSub.broadcast(Bon.PubSub, "status", :change)
+      Phoenix.PubSub.broadcast(Bon.PubSub, "status", {:change, :removed})
     end)
   end
 
@@ -102,5 +109,9 @@ defmodule Bon.VMSupervisor do
 
   defp via do
     {:via, PartitionSupervisor, {@vm_supervisor, self()}}
+  end
+
+  defp via(pid) do
+    {:via, PartitionSupervisor, {@vm_supervisor, pid}}
   end
 end

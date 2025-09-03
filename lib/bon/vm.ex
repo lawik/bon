@@ -22,7 +22,7 @@ defmodule Bon.VM do
         spawn(fn ->
           :timer.sleep(1500)
 
-          Req.post(url(~p"/api/status/#{identifier}"),
+          Req.post(url(~p"/api/status/#{Bon.MacAddress.consistent(identifier)}"),
             receive_timeout: 100_000,
             pool_timeout: 100_000
           )
@@ -44,10 +44,12 @@ defmodule Bon.VM do
   end
 
   def report(identifier) do
-    GenServer.call({:global, name(identifier)}, :report)
-  rescue
-    _ ->
-      :ok
+    case :global.whereis_name(name(identifier)) do
+      :undefined ->
+        {:error, :not_found}
+      pid when is_pid(pid) ->
+        GenServer.call(pid, :report)
+    end
   end
 
   def up?(pid) when is_pid(pid) do
@@ -60,7 +62,7 @@ defmodule Bon.VM do
 
   @impl GenServer
   def handle_call(:report, _from, state) do
-    Phoenix.PubSub.broadcast(Bon.PubSub, "status", :change)
+    Phoenix.PubSub.broadcast(Bon.PubSub, "status", {:change, :ready})
     {:reply, :ok, %{state | started?: true}}
   end
 

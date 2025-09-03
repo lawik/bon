@@ -1,0 +1,2 @@
+- load average
+- detailed CPU indicators (per core)

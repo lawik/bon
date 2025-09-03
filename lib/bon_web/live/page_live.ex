@@ -28,9 +28,6 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_info(:tick, socket) do
     sysmem = :memsup.get_system_memory_data()
-    Enum.each(sysmem, fn {k,v} ->
-       IO.puts("#{k}: #{Sizeable.filesize(v)}")
-    end)
     total = Keyword.get(sysmem, :system_total_memory, 0)
     used = total - Keyword.get(sysmem, :available_memory, 0)
 
@@ -46,9 +43,8 @@ defmodule BonWeb.Live.PageLive do
     {:noreply, assign(socket, memory: %{total: total, used: used}, cpu: %{util: cpu_util})}
   end
 
-  def handle_info(:change, %{assigns: %{refresh: nil}} = socket) do
-    IO.puts("refresh triggered")
-
+  def handle_info({:change, change}, %{assigns: %{refresh: nil}} = socket) do
+    socket = update_change(change, socket)
     t =
       Task.async(fn ->
         Bon.VMSupervisor.status()
@@ -57,21 +53,32 @@ defmodule BonWeb.Live.PageLive do
     {:noreply, assign(socket, refresh: t, dirty?: false)}
   end
 
-  def handle_info(:change, socket) do
-    IO.puts("dirty")
+  def handle_info({:change, change}, socket) do
+    socket = update_change(change, socket)
     {:noreply, assign(socket, dirty?: true)}
   end
 
+  defp update_change(change, socket) do
+    total = socket.assigns.status.total
+    running = socket.assigns.status.running
+
+    case change do
+      :added ->
+        assign(socket, status: %{socket.assigns.status | total: total + 1})
+      :ready ->
+        assign(socket, status: %{socket.assigns.status | running: running + 1})
+      :removed ->
+        assign(socket, status: %{socket.assigns.status | running: running - 1, total: total - 1})
+    end
+  end
+
   def handle_info({_ref, result}, socket) do
-    IO.puts("received status update")
     current_count = result.running || 0
 
     updated_socket =
       assign(socket, status: result, form: to_form(%{"count" => to_string(current_count)}))
 
     if socket.assigns.dirty? do
-      IO.puts("was dirty, refetching")
-
       t =
         Task.async(fn ->
           Bon.VMSupervisor.status()
@@ -79,7 +86,6 @@ defmodule BonWeb.Live.PageLive do
 
       {:noreply, assign(updated_socket, refresh: t, dirty?: false)}
     else
-      IO.puts("clean, not refetching")
       {:noreply, assign(updated_socket, refresh: nil, dirty?: false)}
     end
   end
@@ -90,38 +96,18 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_event("add", %{"count" => count}, socket) do
     count = String.to_integer(count)
-    Bon.VMSupervisor.add(count)
+    spawn(fn ->
+      Bon.VMSupervisor.add(count)
+    end)
     {:noreply, socket}
   end
 
   def handle_event("remove", %{"count" => count}, socket) do
     count = String.to_integer(count)
-    Bon.VMSupervisor.remove(count)
+    spawn(fn ->
+      Bon.VMSupervisor.remove(count)
+    end)
     {:noreply, socket}
-  end
-
-  def handle_event("vm_count_form_change", %{"count" => count_str}, socket) do
-    current_count = socket.assigns.status.running || 0
-
-    case Integer.parse(count_str) do
-      {target_count, ""} when target_count >= 0 ->
-        cond do
-          target_count > current_count ->
-            Bon.VMSupervisor.add(target_count - current_count)
-
-          target_count < current_count ->
-            Bon.VMSupervisor.remove(current_count - target_count)
-
-          true ->
-            # target equals current, no action needed
-            :ok
-        end
-
-        {:noreply, assign(socket, form: to_form(%{"count" => count_str}))}
-
-      _ ->
-        {:noreply, assign(socket, form: to_form(%{"count" => count_str}))}
-    end
   end
 
   def render(assigns) do
@@ -216,7 +202,7 @@ defmodule BonWeb.Live.PageLive do
           <div class="stat-desc">Current memory utilization</div>
         </div>
       </div>
-      
+
     <!-- VM Control Panel -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
@@ -282,29 +268,22 @@ defmodule BonWeb.Live.PageLive do
                   </svg>
                   100
                 </button>
+                <button class="btn btn-success btn-sm" phx-click="add" phx-value-count="1000">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                    stroke="currentColor"
+                    class="w-4 h-4"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  1000
+                </button>
               </div>
             </div>
-            
-    <!-- Custom Count Form -->
-            <div class="md:col-span-2 space-y-4">
-              <h3 class="text-lg font-semibold text-info">Set VM Count</h3>
-              <.form
-                for={@form}
-                phx-change="vm_count_form_change"
-                phx-submit="vm_count_form_change"
-                id="vm-count-form"
-              >
-                <.input
-                  field={@form[:count]}
-                  type="number"
-                  label="Target VM Count"
-                  class="input input-bordered input-info w-full"
-                  phx-debounce="blur"
-                  min="0"
-                />
-              </.form>
-            </div>
-            
+
     <!-- Remove VMs Section -->
             <div class="space-y-4">
               <h3 class="text-lg font-semibold text-error">Remove VMs</h3>
@@ -348,12 +327,25 @@ defmodule BonWeb.Live.PageLive do
                   </svg>
                   100
                 </button>
+                <button class="btn btn-error btn-sm" phx-click="remove" phx-value-count="1000">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke-width="1.5"
+                    stroke="currentColor"
+                    class="w-4 h-4"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12h-15" />
+                  </svg>
+                  1000
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
-      
+
     <!-- Run Count Gauge -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body items-center text-center">
@@ -375,7 +367,7 @@ defmodule BonWeb.Live.PageLive do
             VM Run Count
           </h2>
           <div class="flex justify-center items-center space-x-8">
-            <div class="flex flex-col items-center">
+            <div class="flex flex-col items-center" id="vm-run-count">
               <div
                 class="radial-progress text-primary text-6xl font-bold"
                 style={"--value:#{min(100, (@status.running || 0) / 50)}; --size:12rem; --thickness:8px;"}
@@ -389,7 +381,7 @@ defmodule BonWeb.Live.PageLive do
               <div class="mt-4 text-lg font-semibold text-primary">Running VMs</div>
               <div class="text-sm text-base-content/60">out of 5000 max</div>
             </div>
-            <div class="flex flex-col items-center">
+            <div class="flex flex-col items-center" id="vm-total-count">
               <div
                 class="radial-progress text-secondary text-6xl font-bold"
                 style={"--value:#{min(100, (@status.total || 0) / 50)}; --size:12rem; --thickness:8px;"}
