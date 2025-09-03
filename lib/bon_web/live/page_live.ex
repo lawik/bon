@@ -28,8 +28,11 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_info(:tick, socket) do
     sysmem = :memsup.get_system_memory_data()
+    Enum.each(sysmem, fn {k,v} ->
+       IO.puts("#{k}: #{Sizeable.filesize(v)}")
+    end)
     total = Keyword.get(sysmem, :system_total_memory, 0)
-    used = Keyword.get(sysmem, :buffered_memory, 0) + Keyword.get(sysmem, :cached_memory, 0)
+    used = total - Keyword.get(sysmem, :available_memory, 0)
 
     # Get CPU utilization
     cpu_util =

@@ -30,14 +30,17 @@ defmodule Bon.VM do
 
         Agent.start_link(fn -> :ok end)
       else
-        MuonTrap.Daemon.start_link("qemu-system-aarch64", args(identifier, disk_image), logger_fun: &log/1)
+        MuonTrap.Daemon.start_link("qemu-system-aarch64", args(identifier, disk_image), logger_fun: & log(identifier, &1))
       end
 
     {:ok, %{identifier: opts[:identifier], pid: pid, started?: false}}
   end
 
-  defp log(line) do
-    Logger.info("VM log: #{line}")
+  defp log(identifier, line) do
+    if String.valid?(line) do
+      #Logger.info("[VM #{identifier}] #{line}")
+      :ok
+    end
   end
 
   def report(identifier) do
