@@ -19,7 +19,7 @@ defmodule Bon.VMSupervisor do
       |> Task.async_stream(fn identifier ->
         disk_image = "/space/disks/#{identifier}.img"
         start_child(identifier, disk_image)
-      end, ordered: false, timeout: 360_000)
+      end, ordered: false, timeout: 360_000, max_concurrency: trunc(System.schedulers_online() / 2))
       |> Stream.run()
     end
   end

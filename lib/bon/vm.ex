@@ -85,7 +85,7 @@ defmodule Bon.VM do
       "-smp",
       "1",
       "-m",
-      "110M",
+      "150M",
       "-kernel",
       loader_path(),
       "-netdev",
