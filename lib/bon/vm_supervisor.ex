@@ -16,10 +16,15 @@ defmodule Bon.VMSupervisor do
     if current + count <= @hard_limit do
       count
       |> available_identifiers()
-      |> Task.async_stream(fn identifier ->
-        disk_image = "/space/disks/#{identifier}.img"
-        start_child(identifier, disk_image)
-      end, ordered: false, timeout: 360_000, max_concurrency: trunc(System.schedulers_online() / 2))
+      |> Task.async_stream(
+        fn identifier ->
+          disk_image = "/space/disks/#{identifier}.img"
+          start_child(identifier, disk_image)
+        end,
+        ordered: false,
+        timeout: 360_000,
+        max_concurrency: trunc(System.schedulers_online() / 2)
+      )
       |> Stream.run()
     end
   end
@@ -38,6 +43,7 @@ defmodule Bon.VMSupervisor do
     case :global.whereis_name(name(num)) do
       :undefined ->
         num
+
       pid when is_pid(pid) ->
         find_next(num + 1)
     end

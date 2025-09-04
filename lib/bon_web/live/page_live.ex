@@ -168,10 +168,6 @@ defmodule BonWeb.Live.PageLive do
     ~H"""
     <div class="space-y-8">
       <!-- Header -->
-      <div class="text-center">
-        <h1 class="text-4xl font-bold text-primary mb-2">VM Monitor Dashboard</h1>
-        <p class="text-base-content/70">Real-time system monitoring and VM control</p>
-      </div>
 
       <div class="stats shadow w-full">
         <!-- CPU Stats -->
@@ -294,14 +290,11 @@ defmodule BonWeb.Live.PageLive do
           </h2>
 
           <%= if length(@cpu_cores) > 0 do %>
-            <div
-              class="grid gap-1"
-              style={"grid-template-columns: repeat(#{min(32, max(8, div(length(@cpu_cores), div(length(@cpu_cores), 16) + 1)))}, minmax(0, 1fr));"}
-            >
+            <div class="grid gap-1 grid-cols-32">
               <%= for core <- @cpu_cores do %>
                 <div
                   class={[
-                    "w-3 h-3 rounded-sm border border-base-300 transition-colors duration-300",
+                    "w-full h-3 rounded-sm border border-base-300 transition-colors duration-300",
                     cond do
                       core.utilization >= 80 -> "bg-red-500"
                       core.utilization >= 60 -> "bg-orange-500"
@@ -362,27 +355,9 @@ defmodule BonWeb.Live.PageLive do
         </div>
       </div>
       
-    <!-- VM Control Panel -->
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body">
-          <h2 class="card-title text-2xl mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-6 h-6"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M21.75 17.25v-.228a4.5 4.5 0 00-.12-1.03l-2.268-9.64a3.375 3.375 0 00-3.285-2.602H7.923a3.375 3.375 0 00-3.285 2.602l-2.268 9.64a4.5 4.5 0 00-.12 1.03v.228m19.5 0a3 3 0 01-3 3H5.25a3 3 0 01-3-3m19.5 0a3 3 0 00-3-3H5.25a3 3 0 00-3 3m16.5 0h.008v.008h-.008V21m-3.75 0h.008v.008h-.008V21m-3.75 0h.008v.008h-.008V21m-3.75 0h.008v.008h-.008V21"
-              />
-            </svg>
-            VM Control Panel
-          </h2>
-
+    <!-- Run Count Gauge -->
+      <div class="card bg-base-100 ">
+        <div class="card-body items-center text-center">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Add VMs Section -->
             <div class="space-y-4">
@@ -502,30 +477,7 @@ defmodule BonWeb.Live.PageLive do
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      
-    <!-- Run Count Gauge -->
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body items-center text-center">
-          <h2 class="card-title text-2xl mb-6">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-6 h-6"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"
-              />
-            </svg>
-            VM Run Count
-          </h2>
-          <div class="flex justify-center items-center space-x-8">
+          <div class="flex justify-center items-center space-x-8 mt-16">
             <div class="flex flex-col items-center" id="vm-run-count">
               <div
                 class="radial-progress text-primary text-6xl font-bold"
