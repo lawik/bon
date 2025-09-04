@@ -16,6 +16,7 @@ defmodule BonWeb.Live.PageLive do
         dirty?: false,
         memory: %{total: 0, used: 0},
         cpu: %{util: 0.0},
+        cpu_cores: [],
         form: to_form(%{"count" => to_string(status.running)})
       )
 
@@ -39,12 +40,38 @@ defmodule BonWeb.Live.PageLive do
         _ -> 0.0
       end
 
+    # Get detailed per-CPU utilization
+    cpu_cores =
+      case :cpu_sup.util([:per_cpu]) |> IO.inspect() do
+        {:badrpc, _} ->
+          []
+
+        cores when is_list(cores) ->
+          cores
+          |> Enum.map(fn {id, busy, _non_busy, _misc} ->
+            %{
+              id: id,
+              utilization: busy
+            }
+          end)
+
+        _ ->
+          []
+      end
+
     tick()
-    {:noreply, assign(socket, memory: %{total: total, used: used}, cpu: %{util: cpu_util})}
+
+    {:noreply,
+     assign(socket,
+       memory: %{total: total, used: used},
+       cpu: %{util: cpu_util},
+       cpu_cores: cpu_cores
+     )}
   end
 
   def handle_info({:change, change}, %{assigns: %{refresh: nil}} = socket) do
     socket = update_change(change, socket)
+
     t =
       Task.async(fn ->
         Bon.VMSupervisor.status()
@@ -65,8 +92,10 @@ defmodule BonWeb.Live.PageLive do
     case change do
       :added ->
         assign(socket, status: %{socket.assigns.status | total: total + 1})
+
       :ready ->
         assign(socket, status: %{socket.assigns.status | running: running + 1})
+
       :removed ->
         assign(socket, status: %{socket.assigns.status | running: running - 1, total: total - 1})
     end
@@ -96,17 +125,21 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_event("add", %{"count" => count}, socket) do
     count = String.to_integer(count)
+
     spawn(fn ->
       Bon.VMSupervisor.add(count)
     end)
+
     {:noreply, socket}
   end
 
   def handle_event("remove", %{"count" => count}, socket) do
     count = String.to_integer(count)
+
     spawn(fn ->
       Bon.VMSupervisor.remove(count)
     end)
+
     {:noreply, socket}
   end
 
@@ -141,7 +174,7 @@ defmodule BonWeb.Live.PageLive do
           <div class="stat-value text-warning">
             {:erlang.float_to_binary(@cpu.util, decimals: 1)}%
           </div>
-          <div class="stat-desc">Current CPU usage</div>
+          <div class="stat-desc">Overall CPU usage</div>
         </div>
         <!-- Memory Stats -->
         <div class="stat">
@@ -202,7 +235,98 @@ defmodule BonWeb.Live.PageLive do
           <div class="stat-desc">Current memory utilization</div>
         </div>
       </div>
+      
+    <!-- CPU Cores Visualization -->
+      <div class="card bg-base-100 shadow-xl">
+        <div class="card-body">
+          <h2 class="card-title text-2xl mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+              class="w-6 h-6"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M8.25 3v1.5M4.5 8.25H3m18 0h-1.5M4.5 12H3m18 0h-1.5m-16.5 3.75H3m18 0h-1.5M8.25 19.5V21M12 3v1.5m0 15V21m3.75-18v1.5m0 15V21"
+              />
+            </svg>
+            CPU Cores ({length(@cpu_cores)} cores)
+          </h2>
 
+          <%= if length(@cpu_cores) > 0 do %>
+            <div
+              class="grid gap-1"
+              style={"grid-template-columns: repeat(#{min(32, max(8, div(length(@cpu_cores), div(length(@cpu_cores), 16) + 1)))}, minmax(0, 1fr));"}
+            >
+              <%= for core <- @cpu_cores do %>
+                <div
+                  class={[
+                    "w-3 h-3 rounded-sm border border-base-300 transition-colors duration-300",
+                    cond do
+                      core.utilization >= 80 -> "bg-red-500"
+                      core.utilization >= 60 -> "bg-orange-500"
+                      core.utilization >= 30 -> "bg-yellow-500"
+                      core.utilization >= 10 -> "bg-green-500"
+                      true -> "bg-gray-300"
+                    end
+                  ]}
+                  title={"Core #{core.id}: #{:erlang.float_to_binary(core.utilization, decimals: 1)}%"}
+                >
+                  {core.utilization}
+                </div>
+              <% end %>
+            </div>
+            
+    <!-- Legend -->
+            <div class="mt-4 flex flex-wrap gap-4 text-sm">
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-gray-300 rounded-sm border border-base-300"></div>
+                <span>Idle (0-10%)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-green-500 rounded-sm border border-base-300"></div>
+                <span>Low (10-30%)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-yellow-500 rounded-sm border border-base-300"></div>
+                <span>Medium (30-60%)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-orange-500 rounded-sm border border-base-300"></div>
+                <span>High (60-80%)</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-3 h-3 bg-red-500 rounded-sm border border-base-300"></div>
+                <span>Critical (80%+)</span>
+              </div>
+            </div>
+          <% else %>
+            <div class="text-center py-8 text-base-content/60">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke-width="1.5"
+                stroke="currentColor"
+                class="w-12 h-12 mx-auto mb-2"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                />
+              </svg>
+              <p>CPU core data unavailable</p>
+              <p class="text-xs mt-1">Detailed CPU monitoring may not be supported on this system</p>
+            </div>
+          <% end %>
+        </div>
+      </div>
+      
     <!-- VM Control Panel -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
@@ -283,7 +407,7 @@ defmodule BonWeb.Live.PageLive do
                 </button>
               </div>
             </div>
-
+            
     <!-- Remove VMs Section -->
             <div class="space-y-4">
               <h3 class="text-lg font-semibold text-error">Remove VMs</h3>
@@ -345,7 +469,7 @@ defmodule BonWeb.Live.PageLive do
           </div>
         </div>
       </div>
-
+      
     <!-- Run Count Gauge -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body items-center text-center">
