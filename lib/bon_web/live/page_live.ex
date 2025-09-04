@@ -15,7 +15,7 @@ defmodule BonWeb.Live.PageLive do
         refresh: nil,
         dirty?: false,
         memory: %{total: 0, used: 0},
-        cpu: %{util: 0.0},
+        cpu: %{util: 0.0, load_avg1: 0, load_avg5: 0, load_avg15: 0},
         cpu_cores: [],
         form: to_form(%{"count" => to_string(status.running)})
       )
@@ -32,17 +32,31 @@ defmodule BonWeb.Live.PageLive do
     total = Keyword.get(sysmem, :system_total_memory, 0)
     used = total - Keyword.get(sysmem, :available_memory, 0)
 
-    # Get CPU utilization
-    cpu_util =
-      case :cpu_sup.util() do
-        {:badrpc, _} -> 0.0
-        util when is_number(util) -> util
-        _ -> 0.0
+    # Get CPU load averages
+    cpu_load_avg1 =
+      case :cpu_sup.avg1() do
+        {:error, _} -> 0
+        load when is_integer(load) -> load
+        _ -> 0
+      end
+
+    cpu_load_avg5 =
+      case :cpu_sup.avg5() do
+        {:error, _} -> 0
+        load when is_integer(load) -> load
+        _ -> 0
+      end
+
+    cpu_load_avg15 =
+      case :cpu_sup.avg15() do
+        {:error, _} -> 0
+        load when is_integer(load) -> load
+        _ -> 0
       end
 
     # Get detailed per-CPU utilization
     cpu_cores =
-      case :cpu_sup.util([:per_cpu]) |> IO.inspect() do
+      case :cpu_sup.util([:per_cpu]) do
         {:badrpc, _} ->
           []
 
@@ -59,12 +73,19 @@ defmodule BonWeb.Live.PageLive do
           []
       end
 
+    cpu_util = Enum.sum_by(cpu_cores, & &1.utilization) / Enum.count(cpu_cores)
+
     tick()
 
     {:noreply,
      assign(socket,
        memory: %{total: total, used: used},
-       cpu: %{util: cpu_util},
+       cpu: %{
+         util: cpu_util,
+         load_avg1: cpu_load_avg1,
+         load_avg5: cpu_load_avg5,
+         load_avg15: cpu_load_avg15
+       },
        cpu_cores: cpu_cores
      )}
   end
@@ -83,22 +104,6 @@ defmodule BonWeb.Live.PageLive do
   def handle_info({:change, change}, socket) do
     socket = update_change(change, socket)
     {:noreply, assign(socket, dirty?: true)}
-  end
-
-  defp update_change(change, socket) do
-    total = socket.assigns.status.total
-    running = socket.assigns.status.running
-
-    case change do
-      :added ->
-        assign(socket, status: %{socket.assigns.status | total: total + 1})
-
-      :ready ->
-        assign(socket, status: %{socket.assigns.status | running: running + 1})
-
-      :removed ->
-        assign(socket, status: %{socket.assigns.status | running: running - 1, total: total - 1})
-    end
   end
 
   def handle_info({_ref, result}, socket) do
@@ -121,6 +126,22 @@ defmodule BonWeb.Live.PageLive do
 
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, socket) do
     {:noreply, socket}
+  end
+
+  defp update_change(change, socket) do
+    total = socket.assigns.status.total
+    running = socket.assigns.status.running
+
+    case change do
+      :added ->
+        assign(socket, status: %{socket.assigns.status | total: total + 1})
+
+      :ready ->
+        assign(socket, status: %{socket.assigns.status | running: running + 1})
+
+      :removed ->
+        assign(socket, status: %{socket.assigns.status | running: running - 1, total: total - 1})
+    end
   end
 
   def handle_event("add", %{"count" => count}, socket) do
@@ -176,6 +197,29 @@ defmodule BonWeb.Live.PageLive do
           </div>
           <div class="stat-desc">Overall CPU usage</div>
         </div>
+        <div class="stat">
+          <div class="stat-figure text-info">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke-width="1.5"
+              stroke="currentColor"
+              class="w-8 h-8"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l-1-3m1 3l-1-3m-16.5-3h9v-5.25m0 0h3.75A1.5 1.5 0 0121 6v4.5m0 0v5.25m0 0H9.75M21 10.5H9.75"
+              />
+            </svg>
+          </div>
+          <div class="stat-title">Load Avg (1m)</div>
+          <div class="stat-value text-info">
+            {(@cpu.load_avg1 / 256) |> :erlang.float_to_binary(decimals: 2)}
+          </div>
+          <div class="stat-desc">1-minute load average</div>
+        </div>
         <!-- Memory Stats -->
         <div class="stat">
           <div class="stat-figure text-primary">
@@ -220,14 +264,6 @@ defmodule BonWeb.Live.PageLive do
         </div>
 
         <div class="stat">
-          <div class="stat-figure text-accent">
-            <div
-              class="radial-progress text-accent"
-              style={"--value:#{round(@memory.used / max(@memory.total,1) * 100)}; --size:3rem;"}
-            >
-              {round(@memory.used / max(@memory.total, 1) * 100)}%
-            </div>
-          </div>
           <div class="stat-title">Memory Usage</div>
           <div class="stat-value text-accent">
             {round(@memory.used / max(@memory.total, 1) * 100)}%
@@ -276,7 +312,6 @@ defmodule BonWeb.Live.PageLive do
                   ]}
                   title={"Core #{core.id}: #{:erlang.float_to_binary(core.utilization, decimals: 1)}%"}
                 >
-                  {core.utilization}
                 </div>
               <% end %>
             </div>
