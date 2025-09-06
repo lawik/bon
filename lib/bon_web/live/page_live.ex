@@ -40,6 +40,7 @@ defmodule BonWeb.Live.PageLive do
       @ksm_savings_path
       |> File.read!()
       |> Sizeable.filesize()
+      |> String.replace("-", "")
       rescue
         _ ->
           "-"
