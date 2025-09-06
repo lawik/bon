@@ -1,6 +1,8 @@
 defmodule BonWeb.Live.PageLive do
   use BonWeb, :live_view
 
+  @ksm_savings_path "/sys/kernel/mm/ksm/general_profit"
+
   def mount(_params, _session, socket) do
     Application.ensure_all_started(:memsup)
     Application.ensure_all_started(:cpu_sup)
@@ -14,6 +16,7 @@ defmodule BonWeb.Live.PageLive do
         status: status,
         refresh: nil,
         dirty?: false,
+        ksm: %{savings: 0},
         memory: %{total: 0, used: 0},
         cpu: %{util: 0.0, load_avg1: 0, load_avg5: 0, load_avg15: 0},
         cpu_cores: [],
@@ -32,23 +35,19 @@ defmodule BonWeb.Live.PageLive do
     total = Keyword.get(sysmem, :system_total_memory, 0)
     used = total - Keyword.get(sysmem, :available_memory, 0)
 
+    ksm_savings =
+      try do
+      @ksm_savings_path
+      |> File.read!()
+      |> Sizeable.filesize()
+      rescue
+        _ ->
+          "-"
+  end
+
     # Get CPU load averages
     cpu_load_avg1 =
       case :cpu_sup.avg1() do
-        {:error, _} -> 0
-        load when is_integer(load) -> load
-        _ -> 0
-      end
-
-    cpu_load_avg5 =
-      case :cpu_sup.avg5() do
-        {:error, _} -> 0
-        load when is_integer(load) -> load
-        _ -> 0
-      end
-
-    cpu_load_avg15 =
-      case :cpu_sup.avg15() do
         {:error, _} -> 0
         load when is_integer(load) -> load
         _ -> 0
@@ -79,12 +78,11 @@ defmodule BonWeb.Live.PageLive do
 
     {:noreply,
      assign(socket,
+       ksm: %{savings: ksm_savings},
        memory: %{total: total, used: used},
        cpu: %{
          util: cpu_util,
          load_avg1: cpu_load_avg1,
-         load_avg5: cpu_load_avg5,
-         load_avg15: cpu_load_avg15
        },
        cpu_cores: cpu_cores
      )}
@@ -172,89 +170,24 @@ defmodule BonWeb.Live.PageLive do
       <div class="stats shadow w-full">
         <!-- CPU Stats -->
         <div class="stat">
-          <div class="stat-figure text-warning">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="inline-block w-8 h-8 stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
-              />
-            </svg>
-          </div>
           <div class="stat-title">CPU Utilization</div>
           <div class="stat-value text-warning">
             {:erlang.float_to_binary(@cpu.util, decimals: 1)}%
           </div>
-          <div class="stat-desc">Overall CPU usage</div>
         </div>
         <div class="stat">
-          <div class="stat-figure text-info">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="w-8 h-8"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l-1-3m1 3l-1-3m-16.5-3h9v-5.25m0 0h3.75A1.5 1.5 0 0121 6v4.5m0 0v5.25m0 0H9.75M21 10.5H9.75"
-              />
-            </svg>
-          </div>
           <div class="stat-title">Load Avg (1m)</div>
           <div class="stat-value text-info">
             {(@cpu.load_avg1 / 256) |> :erlang.float_to_binary(decimals: 2)}
           </div>
-          <div class="stat-desc">1-minute load average</div>
         </div>
         <!-- Memory Stats -->
         <div class="stat">
-          <div class="stat-figure text-primary">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="inline-block w-8 h-8 stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              >
-              </path>
-            </svg>
-          </div>
           <div class="stat-title">Total Memory</div>
           <div class="stat-value text-primary">{Sizeable.filesize(@memory.total)}</div>
         </div>
 
         <div class="stat">
-          <div class="stat-figure text-secondary">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="inline-block w-8 h-8 stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 100 4m0-4v2m0-6V4"
-              >
-              </path>
-            </svg>
-          </div>
           <div class="stat-title">Used Memory</div>
           <div class="stat-value text-secondary">{Sizeable.filesize(@memory.used)}</div>
         </div>
@@ -264,10 +197,15 @@ defmodule BonWeb.Live.PageLive do
           <div class="stat-value text-accent">
             {round(@memory.used / max(@memory.total, 1) * 100)}%
           </div>
-          <div class="stat-desc">Current memory utilization</div>
+        </div>
+        <!-- KSM savings -->
+        <div class="stat">
+          <div class="stat-title">KSM savings</div>
+          <div class="stat-value text-primary">{@ksm.savings}</div>
         </div>
       </div>
-      
+
+
     <!-- CPU Cores Visualization -->
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body">
@@ -308,7 +246,7 @@ defmodule BonWeb.Live.PageLive do
                 </div>
               <% end %>
             </div>
-            
+
     <!-- Legend -->
             <div class="mt-4 flex flex-wrap gap-4 text-sm">
               <div class="flex items-center gap-2">
@@ -354,7 +292,7 @@ defmodule BonWeb.Live.PageLive do
           <% end %>
         </div>
       </div>
-      
+
     <!-- Run Count Gauge -->
       <div class="card bg-base-100 ">
         <div class="card-body items-center text-center">
@@ -417,7 +355,7 @@ defmodule BonWeb.Live.PageLive do
                 </button>
               </div>
             </div>
-            
+
     <!-- Remove VMs Section -->
             <div class="space-y-4">
               <h3 class="text-lg font-semibold text-error">Remove VMs</h3>
